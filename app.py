@@ -3,7 +3,7 @@ import logging
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder,
+    Application,
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
@@ -17,8 +17,8 @@ USER_MEDIA_GROUP_ID = int(os.getenv("USER_MEDIA_GROUP_ID", "0"))
 
 app = Flask(__name__)
 
-# টেলিগ্রাম অ্যাপ্লিকেশন তৈরি
-telegram_app = ApplicationBuilder().token(TOKEN).build()
+# গ্লোবাল ভ্যারিয়েবলে টেলিগ্রাম অ্যাপ্লিকেশন ডিক্লেয়ার করা
+telegram_app = None
 
 user_states = {}
 user_temp_data = {}
@@ -202,25 +202,35 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [[InlineKeyboardButton("👉 Open Dashboard", callback_data="dashboard_fake")]]
             await clean_and_send(update, context, "✅ লগইন সফল!", InlineKeyboardMarkup(keyboard))
 
-# হ্যান্ডলারগুলো অ্যাপ্লিকেশনে রেজিস্টার করা
-telegram_app.add_handler(CommandHandler("start", start))
-telegram_app.add_handler(CallbackQueryHandler(button_handler))
-telegram_app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, message_handler))
+async def init_bot():
+    global telegram_app
+    telegram_app = Application.builder().token(TOKEN).build()
+    
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(CallbackQueryHandler(button_handler))
+    telegram_app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, message_handler))
+    
+    await telegram_app.initialize()
 
 @app.route("/")
 def index():
     return "Cloud X Bot is Live!"
 
-# রেন্ডার সার্ভারের জন্য ফ্লাস্ক রুট (ওয়েবহুকের ঝামেলা এড়াতে সিম্পল হেলথ চেক রুট রাখা হলো)
 @app.route(f"/{TOKEN}", methods=["POST"])
-def webhook_listener():
-    if request.headers.get("content-type") == "application/json":
-        json_string = request.get_data().decode("utf-8")
-        update = Update.de_json(json_string, telegram_app.bot)
-        telegram_app.update_queue.put(update)
-        return "OK"
-    return "Invalid request", 403
+def webhook():
+    if request.method == "POST":
+        import asyncio
+        async def process():
+            if telegram_app:
+                update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+                await telegram_app.process_update(update)
+        
+        asyncio.run(process())
+        return "OK", 200
+    return "Forbidden", 403
 
 if __name__ == "__main__":
+    import asyncio
+    asyncio.run(init_bot())
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
