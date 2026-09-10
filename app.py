@@ -1,5 +1,6 @@
 import os
 import logging
+import urllib.request
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -16,8 +17,6 @@ USER_DETAILS_GROUP_ID = int(os.getenv("USER_DETAILS_GROUP_ID", "0"))
 USER_MEDIA_GROUP_ID = int(os.getenv("USER_MEDIA_GROUP_ID", "0"))
 
 app = Flask(__name__)
-
-# গ্লোবাল ভ্যারিয়েবলে টেলিগ্রাম অ্যাপ্লিকেশন ডিক্লেয়ার করা
 telegram_app = None
 
 user_states = {}
@@ -212,6 +211,16 @@ async def init_bot():
     
     await telegram_app.initialize()
 
+def set_webhook_automatically():
+    render_url = os.getenv("RENDER_EXTERNAL_URL")
+    if render_url and TOKEN:
+        webhook_url = f"{render_url}/{TOKEN}"
+        telegram_api_url = f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={webhook_url}"
+        try:
+            urllib.request.urlopen(telegram_api_url)
+        except Exception:
+            pass
+
 @app.route("/")
 def index():
     return "Cloud X Bot is Live!"
@@ -232,5 +241,6 @@ def webhook():
 if __name__ == "__main__":
     import asyncio
     asyncio.run(init_bot())
+    set_webhook_automatically()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
