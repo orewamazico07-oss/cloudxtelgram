@@ -16,6 +16,8 @@ USER_DETAILS_GROUP_ID = int(os.getenv("USER_DETAILS_GROUP_ID", "0"))
 USER_MEDIA_GROUP_ID = int(os.getenv("USER_MEDIA_GROUP_ID", "0"))
 
 app = Flask(__name__)
+
+# টেলিগ্রাম অ্যাপ্লিকেশন তৈরি
 telegram_app = ApplicationBuilder().token(TOKEN).build()
 
 user_states = {}
@@ -191,7 +193,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logged_username = user_temp_data[user_id].get("login_user", "")
         user_states[user_id]["logged_user"] = logged_username
         
-        is_real = True  # পাসকি চেকিং লজিক
+        is_real = True
 
         if is_real:
             keyboard = [[InlineKeyboardButton("👉 Go to Dashboard", callback_data="dashboard_real")]]
@@ -200,24 +202,25 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [[InlineKeyboardButton("👉 Open Dashboard", callback_data="dashboard_fake")]]
             await clean_and_send(update, context, "✅ লগইন সফল!", InlineKeyboardMarkup(keyboard))
 
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-    telegram_app.update_queue.put(update)
-    return "OK", 200
+# হ্যান্ডলারগুলো অ্যাপ্লিকেশনে রেজিস্টার করা
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(CallbackQueryHandler(button_handler))
+telegram_app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, message_handler))
 
 @app.route("/")
 def index():
-    return "Cloud X Bot is Live as Web Service!"
+    return "Cloud X Bot is Live!"
 
-async def setup_webhook():
-    render_url = os.getenv("RENDER_EXTERNAL_URL")
-    if render_url:
-        await telegram_app.bot.set_webhook(url=f"{render_url}/{TOKEN}")
+# রেন্ডার সার্ভারের জন্য ফ্লাস্ক রুট (ওয়েবহুকের ঝামেলা এড়াতে সিম্পল হেলথ চেক রুট রাখা হলো)
+@app.route(f"/{TOKEN}", methods=["POST"])
+def webhook_listener():
+    if request.headers.get("content-type") == "application/json":
+        json_string = request.get_data().decode("utf-8")
+        update = Update.de_json(json_string, telegram_app.bot)
+        telegram_app.update_queue.put(update)
+        return "OK"
+    return "Invalid request", 403
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(setup_webhook())
-    
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
